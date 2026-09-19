@@ -187,10 +187,15 @@ class Tui {
 
     int run() {
         monitor_.start();
+        bool first_frame = true;
         while (!quit_) {
-            update_snapshot();
-            handle_input(getch());
-            draw();
+            const auto metrics_changed = update_snapshot();
+            const auto key = getch();
+            handle_input(key);
+            if (first_frame || metrics_changed || key != ERR) {
+                draw();
+                first_frame = false;
+            }
             std::this_thread::sleep_for(std::chrono::milliseconds{30});
         }
         monitor_.stop();
@@ -199,10 +204,10 @@ class Tui {
 
   private:
     // Pull a new generation only once and update every bounded history together.
-    void update_snapshot() {
+    bool update_snapshot() {
         const auto latest = monitor_.snapshot();
         if (latest.generation == 0 || latest.generation == snapshot_.generation) {
-            return;
+            return false;
         }
         snapshot_ = latest;
         if (!snapshot_.cpu.empty()) {
@@ -226,6 +231,7 @@ class Tui {
                 process_memory_history_.push(process->memory_percent);
             }
         }
+        return true;
     }
 
     // Filter and sort a private view so keyboard state never mutates shared data.
