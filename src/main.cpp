@@ -1,13 +1,15 @@
-#include "pulse/collectors/cpu.hpp"
-#include "pulse/collectors/memory.hpp"
-#include "pulse/collectors/system.hpp"
-#include "pulse/utils/format.hpp"
+#include "pulse/app/doctor.hpp"
+#include "pulse/app/monitor.hpp"
+#include "pulse/ui/tui.hpp"
 #include "pulse/version.hpp"
 
 #include <chrono>
+#include <charconv>
 #include <iostream>
+#include <optional>
+#include <string>
 #include <string_view>
-#include <thread>
+#include <unistd.h>
 
 namespace {
 
@@ -21,11 +23,24 @@ void print_help() {
               << "  pulse --version\n";
 }
 
+// Parse a decimal refresh interval without locale or exception behavior.
+std::optional<int> parse_refresh(std::string_view value) {
+    int milliseconds{};
+    const auto result = std::from_chars(value.data(), value.data() + value.size(), milliseconds);
+    if (result.ec != std::errc{} || result.ptr != value.data() + value.size() ||
+        milliseconds < 100 || milliseconds > 10000) {
+        return std::nullopt;
+    }
+    return milliseconds;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
-    if (argc > 1) {
-        const std::string_view command{argv[1]};
+    int refresh = 1000;
+    bool use_color = true;
+    for (int index = 1; index < argc; ++index) {
+        const std::string_view command{argv[index]};
         if (command == "--help" || command == "-h") {
             print_help();
             return 0;
@@ -34,33 +49,30 @@ int main(int argc, char** argv) {
             std::cout << "pulse " << PULSE_VERSION << '\n';
             return 0;
         }
-    }
-
-    // Exercise the first collector slice until the interactive UI is connected.
-    pulse::CpuCollector cpu;
-    pulse::MemoryCollector memory;
-    pulse::SystemCollector system;
-    const auto before = cpu.collect();
-    std::this_thread::sleep_for(std::chrono::milliseconds{200});
-    const auto after = cpu.collect();
-    const auto ram = memory.collect();
-    const auto metrics = system.collect_metrics();
-
-    std::cout << "Pulse " << PULSE_VERSION << '\n';
-    if (before && after) {
-        const auto usage = pulse::calculate_cpu_usage(*before, *after);
-        if (!usage.empty()) {
-            std::cout << "CPU: " << usage.front().total_percent << "%\n";
+        if (command == "doctor") {
+            return pulse::run_doctor(std::cout) > 0 ? 1 : 0;
         }
+        if (command == "--no-color") {
+            use_color = false;
+            continue;
+        }
+        if (command == "--refresh" && index + 1 < argc) {
+            const auto parsed = parse_refresh(argv[++index]);
+            if (!parsed) {
+                std::cerr << "pulse: refresh must be between 100 and 10000 milliseconds\n";
+                return 2;
+            }
+            refresh = *parsed;
+            continue;
+        }
+        std::cerr << "pulse: unknown argument: " << command << "\nTry 'pulse --help'.\n";
+        return 2;
     }
-    if (ram) {
-        std::cout << "Memory: " << pulse::format_bytes(ram->used_bytes) << " / "
-                  << pulse::format_bytes(ram->total_bytes) << '\n';
-    }
-    if (metrics) {
-        std::cout << "Load: " << metrics->load_one << ' ' << metrics->load_five << ' '
-                  << metrics->load_fifteen << '\n';
-    }
-    return 0;
-}
 
+    if (::isatty(STDIN_FILENO) == 0 || ::isatty(STDOUT_FILENO) == 0) {
+        std::cerr << "pulse: interactive mode requires a terminal; use 'pulse doctor' for text output\n";
+        return 2;
+    }
+    pulse::Monitor monitor{std::chrono::milliseconds{refresh}};
+    return pulse::run_tui(monitor, use_color);
+}

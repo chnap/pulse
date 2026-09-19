@@ -24,6 +24,7 @@ add_library(pulse_core
     src/collectors/network.cpp
     src/collectors/storage.cpp
     src/collectors/temperature.cpp
+    src/app/monitor.cpp
     src/collectors/system.cpp
     src/utils/format.cpp
 )
@@ -38,7 +39,11 @@ target_compile_options(pulse_core PRIVATE
     $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Wconversion;-Wshadow>
 )
 
-add_executable(pulse src/main.cpp)
+add_executable(pulse
+    src/main.cpp
+    src/app/doctor.cpp
+    src/ui/tui.cpp
+)
 target_link_libraries(pulse PRIVATE pulse_core Threads::Threads ${CURSES_LIBRARIES})
 target_include_directories(pulse PRIVATE ${CURSES_INCLUDE_DIRS})
 target_compile_options(pulse PRIVATE

@@ -14,10 +14,11 @@ namespace {
 // Filter pseudo filesystems that do not represent user storage capacity.
 bool is_virtual_filesystem(std::string_view type) {
     static const std::set<std::string> virtual_types{
-        "autofs",      "bpf",      "cgroup", "cgroup2", "configfs", "debugfs",
-        "devpts",      "devtmpfs", "fusectl", "hugetlbfs", "mqueue", "proc",
-        "pstore",      "securityfs", "sysfs", "tmpfs", "tracefs", "overlay"};
-    return virtual_types.contains(std::string{type});
+        "autofs",       "binfmt_misc", "bpf",      "cgroup",  "cgroup2", "configfs",
+        "debugfs",      "devpts",      "devtmpfs", "efivarfs", "fusectl", "hugetlbfs",
+        "mqueue",       "nsfs",        "overlay",  "proc",     "pstore",  "securityfs",
+        "squashfs",     "sysfs",       "tmpfs",    "tracefs"};
+    return virtual_types.contains(std::string{type}) || type.starts_with("fuse.");
 }
 
 // Decode the octal whitespace escapes used in /proc/mounts.
@@ -52,6 +53,7 @@ std::vector<FilesystemUsage> FilesystemCollector::collect() const {
     std::ifstream mounts(proc_root_ / "mounts");
     std::vector<FilesystemUsage> result;
     std::set<std::string> seen;
+    std::set<std::string> seen_devices;
     std::string line;
     while (std::getline(mounts, line)) {
         std::istringstream fields(line);
@@ -62,7 +64,7 @@ std::vector<FilesystemUsage> FilesystemCollector::collect() const {
             continue;
         }
         mount = decode_mount(mount);
-        if (!seen.insert(mount).second) {
+        if (!seen.insert(mount).second || !seen_devices.insert(device).second) {
             continue;
         }
         struct statvfs stats {};
@@ -71,15 +73,17 @@ std::vector<FilesystemUsage> FilesystemCollector::collect() const {
         }
         const auto block_size = static_cast<std::uint64_t>(stats.f_frsize);
         const auto total = static_cast<std::uint64_t>(stats.f_blocks) * block_size;
+        const auto free = static_cast<std::uint64_t>(stats.f_bfree) * block_size;
         const auto available = static_cast<std::uint64_t>(stats.f_bavail) * block_size;
-        const auto used = total >= available ? total - available : 0;
+        const auto used = total >= free ? total - free : 0;
+        const auto usable = used + available;
         result.push_back({.device = decode_mount(device),
                           .mount_point = mount,
                           .type = type,
                           .total_bytes = total,
                           .used_bytes = used,
-                          .used_percent = total > 0 ? 100.0 * static_cast<double>(used) /
-                                                           static_cast<double>(total)
+                          .used_percent = usable > 0 ? 100.0 * static_cast<double>(used) /
+                                                            static_cast<double>(usable)
                                                    : 0.0});
     }
     std::ranges::sort(result, {}, &FilesystemUsage::mount_point);
