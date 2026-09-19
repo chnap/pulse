@@ -1,10 +1,16 @@
 # Pulse
 
-Pulse is a terminal system monitor for Linux written in C++.
+[![CI](https://github.com/chnap/pulse/actions/workflows/ci.yml/badge.svg)](https://github.com/chnap/pulse/actions/workflows/ci.yml)
 
-It reads system information directly from Linux interfaces such as `/proc` and `/sys` and displays CPU, memory, processes, network activity, storage, and temperatures in a real-time terminal interface.
+Pulse is a lightweight terminal system monitor for Linux, built with C++20 and ncurses.
 
-Pulse does not send telemetry or make network requests during normal operation.
+It reads kernel data directly from interfaces such as `/proc` and `/sys` and turns it into a responsive dashboard for CPU, memory, processes, network activity, storage, and temperatures. Metrics stay on the local machine: Pulse does not invoke monitoring commands, send telemetry, or make network requests during normal operation.
+
+## Why I built Pulse
+
+I built Pulse while learning C++, Linux, and systems programming. I wanted a project that went beyond small exercises and required me to understand how Linux exposes real system information, how applications calculate rates from cumulative counters, and how to keep an interactive terminal interface responsive.
+
+The code is intentionally structured so I can keep improving it as I learn. It uses modern C++ where it makes the implementation clearer, while keeping the collectors and parsing logic straightforward enough to study.
 
 ## Screenshot / demo
 
