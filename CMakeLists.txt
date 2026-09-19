@@ -20,6 +20,10 @@ find_package(Threads REQUIRED)
 add_library(pulse_core
     src/collectors/cpu.cpp
     src/collectors/memory.cpp
+    src/collectors/process.cpp
+    src/collectors/network.cpp
+    src/collectors/storage.cpp
+    src/collectors/temperature.cpp
     src/collectors/system.cpp
     src/utils/format.cpp
 )
@@ -53,10 +57,11 @@ if(BUILD_TESTING)
         tests/test_main.cpp
         tests/test_cpu.cpp
         tests/test_memory.cpp
+        tests/test_process.cpp
+        tests/test_network.cpp
         tests/test_format.cpp
     )
     target_link_libraries(pulse_tests PRIVATE pulse_core)
     target_include_directories(pulse_tests PRIVATE tests)
     add_test(NAME pulse_tests COMMAND pulse_tests)
 endif()
-

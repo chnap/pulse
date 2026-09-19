@@ -70,5 +70,55 @@ struct SystemMetrics {
     double load_fifteen{};
 };
 
-} // namespace pulse
+// Describe a process snapshot enriched with rates derived from prior samples.
+struct ProcessInfo {
+    Pid pid{};
+    Pid parent_pid{};
+    std::string name;
+    std::string command;
+    std::string user;
+    char state{'?'};
+    unsigned long threads{};
+    std::uint64_t resident_bytes{};
+    double memory_percent{};
+    double cpu_percent{};
+    double runtime_seconds{};
+    std::uint64_t start_time_ticks{};
+    std::uint64_t cpu_time_ticks{};
+};
 
+// Store absolute network counters and rates for one interface.
+struct NetworkInterface {
+    std::string name;
+    std::uint64_t received_bytes{};
+    std::uint64_t transmitted_bytes{};
+    double receive_bytes_per_second{};
+    double transmit_bytes_per_second{};
+};
+
+// Store read and write rates for one block device.
+struct DiskActivity {
+    std::string name;
+    double read_bytes_per_second{};
+    double write_bytes_per_second{};
+    std::uint64_t read_bytes{};
+    std::uint64_t write_bytes{};
+};
+
+// Describe capacity reported by statvfs for a useful mount point.
+struct FilesystemUsage {
+    std::string device;
+    std::string mount_point;
+    std::string type;
+    std::uint64_t total_bytes{};
+    std::uint64_t used_bytes{};
+    double used_percent{};
+};
+
+// Store a normalized Linux thermal or hwmon sensor reading.
+struct Temperature {
+    std::string label;
+    double celsius{};
+};
+
+} // namespace pulse
