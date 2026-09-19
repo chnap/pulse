@@ -1,0 +1,5 @@
+#pragma once
+
+// Keep the public version synchronized with the CMake project version.
+#define PULSE_VERSION "@PROJECT_VERSION@"
+
