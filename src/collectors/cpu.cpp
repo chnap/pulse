@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <fstream>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -14,15 +15,25 @@ std::uint64_t safe_delta(std::uint64_t before, std::uint64_t after) {
     return after >= before ? after - before : 0;
 }
 
-} // namespace
-
-std::uint64_t CpuTimes::idle_all() const { return idle + iowait; }
-
-std::uint64_t CpuTimes::non_idle() const {
-    return user + nice + system + irq + softirq + steal;
+// Saturate cumulative additions instead of allowing unsigned totals to wrap.
+std::uint64_t safe_add(std::uint64_t left, std::uint64_t right) {
+    const auto maximum = std::numeric_limits<std::uint64_t>::max();
+    return right > maximum - left ? maximum : left + right;
 }
 
-std::uint64_t CpuTimes::total() const { return idle_all() + non_idle(); }
+} // namespace
+
+std::uint64_t CpuTimes::idle_all() const { return safe_add(idle, iowait); }
+
+std::uint64_t CpuTimes::non_idle() const {
+    auto result = safe_add(user, nice);
+    result = safe_add(result, system);
+    result = safe_add(result, irq);
+    result = safe_add(result, softirq);
+    return safe_add(result, steal);
+}
+
+std::uint64_t CpuTimes::total() const { return safe_add(idle_all(), non_idle()); }
 
 std::optional<CpuSample> parse_cpu_stat(std::string_view text) {
     std::istringstream input{std::string{text}};
@@ -52,8 +63,7 @@ std::optional<CpuSample> parse_cpu_stat(std::string_view text) {
     return sample;
 }
 
-std::vector<CpuUsage> calculate_cpu_usage(const CpuSample& previous,
-                                          const CpuSample& current) {
+std::vector<CpuUsage> calculate_cpu_usage(const CpuSample& previous, const CpuSample& current) {
     std::unordered_map<std::string, CpuTimes> previous_by_name;
     for (const auto& counter : previous.counters) {
         previous_by_name.emplace(counter.name, counter);
@@ -67,7 +77,17 @@ std::vector<CpuUsage> calculate_cpu_usage(const CpuSample& previous,
             continue;
         }
 
-        const auto total_delta = safe_delta(old->second.total(), now.total());
+        const auto user_delta = safe_add(safe_delta(old->second.user, now.user),
+                                         safe_delta(old->second.nice, now.nice));
+        const auto system_delta = safe_delta(old->second.system, now.system);
+        const auto idle_delta = safe_add(safe_delta(old->second.idle, now.idle),
+                                         safe_delta(old->second.iowait, now.iowait));
+        const auto iowait_delta = safe_delta(old->second.iowait, now.iowait);
+        auto total_delta = safe_add(user_delta, system_delta);
+        total_delta = safe_add(total_delta, idle_delta);
+        total_delta = safe_add(total_delta, safe_delta(old->second.irq, now.irq));
+        total_delta = safe_add(total_delta, safe_delta(old->second.softirq, now.softirq));
+        total_delta = safe_add(total_delta, safe_delta(old->second.steal, now.steal));
         if (total_delta == 0) {
             result.push_back({.name = now.name});
             continue;
@@ -76,15 +96,13 @@ std::vector<CpuUsage> calculate_cpu_usage(const CpuSample& previous,
         const auto percent = [total_delta](std::uint64_t delta) {
             return 100.0 * static_cast<double>(delta) / static_cast<double>(total_delta);
         };
-        const auto idle_delta = safe_delta(old->second.idle_all(), now.idle_all());
         result.push_back({
             .name = now.name,
             .total_percent = std::clamp(100.0 - percent(idle_delta), 0.0, 100.0),
-            .user_percent = percent(safe_delta(old->second.user + old->second.nice,
-                                               now.user + now.nice)),
-            .system_percent = percent(safe_delta(old->second.system, now.system)),
+            .user_percent = percent(user_delta),
+            .system_percent = percent(system_delta),
             .idle_percent = percent(idle_delta),
-            .iowait_percent = percent(safe_delta(old->second.iowait, now.iowait)),
+            .iowait_percent = percent(iowait_delta),
         });
     }
     return result;
@@ -101,4 +119,3 @@ std::optional<CpuSample> CpuCollector::collect() const {
 }
 
 } // namespace pulse
-

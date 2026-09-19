@@ -47,7 +47,7 @@ class Monitor {
     [[nodiscard]] const SystemInfo& system_info() const noexcept;
 
   private:
-    void run(std::stop_token stop_token);
+    void run(const std::stop_token& stop_token);
 
     std::chrono::milliseconds refresh_interval_;
     CpuCollector cpu_collector_;

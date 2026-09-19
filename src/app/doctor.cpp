@@ -52,11 +52,13 @@ int run_doctor(std::ostream& output) {
     std::vector<std::string> warnings;
 
     output << "Pulse System Diagnostic\n\nSystem\n";
-    output << (info.operating_system.empty() ? "Unknown distribution" : info.operating_system) << '\n';
+    output << (info.operating_system.empty() ? "Unknown distribution" : info.operating_system)
+           << '\n';
     output << (info.kernel.empty() ? "Unknown kernel" : info.kernel) << '\n';
     if (live) {
-        output << "Uptime: " << format_duration(std::chrono::seconds{
-                                     static_cast<long long>(live->uptime_seconds)})
+        output << "Uptime: "
+               << format_duration(
+                      std::chrono::seconds{static_cast<long long>(live->uptime_seconds)})
                << "\nLoad: " << live->load_one << " / " << live->load_five << " / "
                << live->load_fifteen << '\n';
     }
@@ -120,8 +122,8 @@ int run_doctor(std::ostream& output) {
     output << "\nNetwork\n";
     bool printed_network = false;
     for (const auto& interface : nets) {
-        if (interface.name != "lo" &&
-            (interface.receive_bytes_per_second > 0.0 || interface.transmit_bytes_per_second > 0.0)) {
+        if (interface.name != "lo" && (interface.receive_bytes_per_second > 0.0 ||
+                                       interface.transmit_bytes_per_second > 0.0)) {
             output << interface.name << ": down "
                    << format_bytes(static_cast<std::uint64_t>(interface.receive_bytes_per_second))
                    << "/s, up "
@@ -131,9 +133,8 @@ int run_doctor(std::ostream& output) {
         }
     }
     if (!printed_network) {
-        const auto detected = std::ranges::find_if(nets, [](const NetworkInterface& interface) {
-            return interface.name != "lo";
-        });
+        const auto detected = std::ranges::find_if(
+            nets, [](const NetworkInterface& interface) { return interface.name != "lo"; });
         if (detected != nets.end()) {
             output << detected->name << ": detected, idle during sample\n";
         } else {
@@ -149,8 +150,8 @@ int run_doctor(std::ostream& output) {
             output << "[WARN] " << warning << '\n';
         }
     }
-    output << '\n' << warnings.size() << " warning" << (warnings.size() == 1 ? "" : "s")
-           << " detected.\n";
+    output << '\n'
+           << warnings.size() << " warning" << (warnings.size() == 1 ? "" : "s") << " detected.\n";
     return static_cast<int>(warnings.size());
 }
 

@@ -28,4 +28,3 @@ class CpuCollector {
 };
 
 } // namespace pulse
-

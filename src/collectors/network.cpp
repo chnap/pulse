@@ -49,9 +49,8 @@ std::optional<std::vector<NetworkInterface>> parse_net_dev(std::string_view text
         if (!(fields >> transmit)) {
             return std::nullopt;
         }
-        interfaces.push_back({.name = std::move(name),
-                              .received_bytes = receive,
-                              .transmitted_bytes = transmit});
+        interfaces.push_back(
+            {.name = std::move(name), .received_bytes = receive, .transmitted_bytes = transmit});
     }
     return interfaces;
 }
@@ -82,8 +81,8 @@ std::vector<NetworkInterface> NetworkCollector::collect() {
                 static_cast<double>(delta(old->second.received_bytes, interface.received_bytes)) /
                 elapsed;
             interface.transmit_bytes_per_second =
-                static_cast<double>(delta(old->second.transmitted_bytes,
-                                          interface.transmitted_bytes)) /
+                static_cast<double>(
+                    delta(old->second.transmitted_bytes, interface.transmitted_bytes)) /
                 elapsed;
         }
         next.emplace(interface.name, interface);
@@ -94,4 +93,3 @@ std::vector<NetworkInterface> NetworkCollector::collect() {
 }
 
 } // namespace pulse
-

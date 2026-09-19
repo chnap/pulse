@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <charconv>
 #include <fstream>
+#include <limits>
 #include <pwd.h>
 #include <sstream>
 #include <string>
@@ -32,6 +33,18 @@ std::optional<Pid> parse_pid(std::string_view name) {
     return pid;
 }
 
+// Parse a complete integer field without exceptions or partial conversions.
+template <typename T> bool parse_number(std::string_view text, T& value) {
+    const auto result = std::from_chars(text.data(), text.data() + text.size(), value);
+    return result.ec == std::errc{} && result.ptr == text.data() + text.size();
+}
+
+// Add cumulative process ticks without wrapping an unsigned counter.
+std::uint64_t safe_add(std::uint64_t left, std::uint64_t right) {
+    const auto maximum = std::numeric_limits<std::uint64_t>::max();
+    return right > maximum - left ? maximum : left + right;
+}
+
 // Resolve an effective UID from /proc status to a displayable account name.
 std::string read_user(const std::filesystem::path& status_path) {
     const auto status = read_file(status_path);
@@ -50,10 +63,12 @@ std::string read_user(const std::filesystem::path& status_path) {
 
     long size = ::sysconf(_SC_GETPW_R_SIZE_MAX);
     size = size > 0 ? size : 16384;
+    size = std::clamp(size, 1024L, 1024L * 1024L);
     std::vector<char> buffer(static_cast<std::size_t>(size));
-    struct passwd entry {};
+    struct passwd entry{};
     struct passwd* result = nullptr;
-    if (::getpwuid_r(uid, &entry, buffer.data(), buffer.size(), &result) == 0 && result != nullptr) {
+    if (::getpwuid_r(uid, &entry, buffer.data(), buffer.size(), &result) == 0 &&
+        result != nullptr) {
         return entry.pw_name;
     }
     return std::to_string(uid);
@@ -79,7 +94,7 @@ std::uint64_t read_total_cpu_ticks(const std::filesystem::path& stat_path) {
         return 0;
     }
     while (input >> value) {
-        total += value;
+        total = safe_add(total, value);
         if (input.peek() == '\n') {
             break;
         }
@@ -116,15 +131,11 @@ std::optional<ProcessStat> parse_process_stat(std::string_view text) {
     if (values.size() < 22) {
         return std::nullopt;
     }
-    try {
-        stat.state = values[0].front();
-        stat.parent_pid = std::stoi(values[1]);
-        stat.user_ticks = std::stoull(values[11]);
-        stat.system_ticks = std::stoull(values[12]);
-        stat.threads = std::stoul(values[17]);
-        stat.start_time_ticks = std::stoull(values[19]);
-        stat.resident_pages = std::stoll(values[21]);
-    } catch (const std::exception&) {
+    stat.state = values[0].front();
+    if (!parse_number(values[1], stat.parent_pid) || !parse_number(values[11], stat.user_ticks) ||
+        !parse_number(values[12], stat.system_ticks) || !parse_number(values[17], stat.threads) ||
+        !parse_number(values[19], stat.start_time_ticks) ||
+        !parse_number(values[21], stat.resident_pages)) {
         return std::nullopt;
     }
     return stat;
@@ -161,10 +172,11 @@ std::vector<ProcessInfo> ProcessCollector::collect(double uptime_seconds,
             continue;
         }
 
-        const auto cpu_ticks = stat->user_ticks + stat->system_ticks;
+        const auto cpu_ticks = safe_add(stat->user_ticks, stat->system_ticks);
         double cpu_percent = 0.0;
         const auto old = previous_processes_.find(*pid);
-        if (old != previous_processes_.end() && old->second.start_time_ticks == stat->start_time_ticks &&
+        if (old != previous_processes_.end() &&
+            old->second.start_time_ticks == stat->start_time_ticks &&
             cpu_ticks >= old->second.cpu_time_ticks && total_delta > 0) {
             const auto process_delta = cpu_ticks - old->second.cpu_time_ticks;
             cpu_percent = 100.0 * static_cast<double>(process_delta) * logical_cpus /
@@ -172,8 +184,12 @@ std::vector<ProcessInfo> ProcessCollector::collect(double uptime_seconds,
         }
 
         const auto positive_pages = std::max<std::int64_t>(0, stat->resident_pages);
-        const auto resident = static_cast<std::uint64_t>(positive_pages) *
-                              static_cast<std::uint64_t>(std::max(0L, page_size_));
+        const auto pages = static_cast<std::uint64_t>(positive_pages);
+        const auto page_size = static_cast<std::uint64_t>(std::max(0L, page_size_));
+        const auto resident =
+            page_size > 0 && pages > std::numeric_limits<std::uint64_t>::max() / page_size
+                ? std::numeric_limits<std::uint64_t>::max()
+                : pages * page_size;
         processes.push_back({
             .pid = *pid,
             .parent_pid = stat->parent_pid,
@@ -183,16 +199,15 @@ std::vector<ProcessInfo> ProcessCollector::collect(double uptime_seconds,
             .state = stat->state,
             .threads = stat->threads,
             .resident_bytes = resident,
-            .memory_percent = total_memory_bytes > 0
-                                  ? 100.0 * static_cast<double>(resident) /
-                                        static_cast<double>(total_memory_bytes)
-                                  : 0.0,
+            .memory_percent = total_memory_bytes > 0 ? 100.0 * static_cast<double>(resident) /
+                                                           static_cast<double>(total_memory_bytes)
+                                                     : 0.0,
             .cpu_percent = cpu_percent,
-            .runtime_seconds = clock_ticks_ > 0
-                                   ? std::max(0.0, uptime_seconds -
-                                                       static_cast<double>(stat->start_time_ticks) /
-                                                           static_cast<double>(clock_ticks_))
-                                   : 0.0,
+            .runtime_seconds =
+                clock_ticks_ > 0
+                    ? std::max(0.0, uptime_seconds - static_cast<double>(stat->start_time_ticks) /
+                                                         static_cast<double>(clock_ticks_))
+                    : 0.0,
             .start_time_ticks = stat->start_time_ticks,
             .cpu_time_ticks = cpu_ticks,
         });

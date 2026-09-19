@@ -20,4 +20,3 @@ class SystemCollector {
 };
 
 } // namespace pulse
-

@@ -17,7 +17,7 @@ std::string read_text(const std::filesystem::path& path) {
 }
 
 // Extract a named colon-separated value from Linux metadata files.
-std::string find_value(std::string_view text, std::string_view name) {
+std::string find_value(std::string_view text, const char* name) {
     std::istringstream input{std::string{text}};
     std::string line;
     while (std::getline(input, line)) {
@@ -42,7 +42,7 @@ SystemInfo SystemCollector::collect_info() const {
         info.hostname = hostname;
     }
 
-    struct utsname system_name {};
+    struct utsname system_name{};
     if (::uname(&system_name) == 0) {
         info.kernel = std::string{system_name.sysname} + " " + system_name.release;
     }
@@ -55,7 +55,8 @@ SystemInfo SystemCollector::collect_info() const {
         info.operating_system = os_release.substr(begin, end - begin);
         if (info.operating_system.size() >= 2 && info.operating_system.front() == '"' &&
             info.operating_system.back() == '"') {
-            info.operating_system = info.operating_system.substr(1, info.operating_system.size() - 2);
+            info.operating_system =
+                info.operating_system.substr(1, info.operating_system.size() - 2);
         }
     }
 
@@ -76,4 +77,3 @@ std::optional<SystemMetrics> SystemCollector::collect_metrics() const {
 }
 
 } // namespace pulse
-

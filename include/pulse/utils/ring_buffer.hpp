@@ -35,4 +35,3 @@ template <typename T> class RingBuffer {
 };
 
 } // namespace pulse
-

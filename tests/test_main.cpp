@@ -9,4 +9,3 @@ int main() {
     }
     return test::failures == 0 ? 0 : 1;
 }
-

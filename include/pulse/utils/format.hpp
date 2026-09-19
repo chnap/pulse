@@ -13,4 +13,3 @@ namespace pulse {
 [[nodiscard]] std::string format_duration(std::chrono::seconds duration);
 
 } // namespace pulse
-

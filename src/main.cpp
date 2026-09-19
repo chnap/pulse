@@ -3,8 +3,8 @@
 #include "pulse/ui/tui.hpp"
 #include "pulse/version.hpp"
 
-#include <chrono>
 #include <charconv>
+#include <chrono>
 #include <iostream>
 #include <optional>
 #include <string>
@@ -70,7 +70,8 @@ int main(int argc, char** argv) {
     }
 
     if (::isatty(STDIN_FILENO) == 0 || ::isatty(STDOUT_FILENO) == 0) {
-        std::cerr << "pulse: interactive mode requires a terminal; use 'pulse doctor' for text output\n";
+        std::cerr
+            << "pulse: interactive mode requires a terminal; use 'pulse doctor' for text output\n";
         return 2;
     }
     pulse::Monitor monitor{std::chrono::milliseconds{refresh}};

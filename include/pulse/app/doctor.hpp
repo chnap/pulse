@@ -8,4 +8,3 @@ namespace pulse {
 int run_doctor(std::ostream& output);
 
 } // namespace pulse
-

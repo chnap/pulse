@@ -8,4 +8,3 @@ namespace pulse {
 int run_tui(Monitor& monitor, bool use_color);
 
 } // namespace pulse
-

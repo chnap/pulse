@@ -28,4 +28,3 @@ class NetworkCollector {
 };
 
 } // namespace pulse
-

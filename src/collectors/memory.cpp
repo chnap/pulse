@@ -18,18 +18,27 @@ std::optional<std::uint64_t> kib_to_bytes(std::uint64_t kib) {
     return kib * scale;
 }
 
+// Saturate optional cache components before their final unit conversion.
+std::uint64_t safe_add(std::uint64_t left, std::uint64_t right) {
+    const auto maximum = std::numeric_limits<std::uint64_t>::max();
+    return right > maximum - left ? maximum : left + right;
+}
+
 } // namespace
 
 std::optional<MemoryMetrics> parse_meminfo(std::string_view text) {
     std::istringstream input{std::string{text}};
     std::unordered_map<std::string, std::uint64_t> values;
-    std::string key;
-    std::uint64_t value{};
-    std::string unit;
+    std::string line;
 
-    // Accept unknown fields so the parser remains compatible with newer kernels.
-    while (input >> key >> value) {
-        input >> unit;
+    // Parse each line independently because several valid fields have no unit.
+    while (std::getline(input, line)) {
+        std::istringstream fields(line);
+        std::string key;
+        std::uint64_t value{};
+        if (!(fields >> key >> value)) {
+            continue;
+        }
         if (!key.empty() && key.back() == ':') {
             key.pop_back();
         }
@@ -42,7 +51,7 @@ std::optional<MemoryMetrics> parse_meminfo(std::string_view text) {
 
     const auto total = kib_to_bytes(values["MemTotal"]);
     const auto available = kib_to_bytes(values["MemAvailable"]);
-    const auto cached = kib_to_bytes(values["Cached"] + values["SReclaimable"]);
+    const auto cached = kib_to_bytes(safe_add(values["Cached"], values["SReclaimable"]));
     const auto swap_total = kib_to_bytes(values["SwapTotal"]);
     const auto swap_free = kib_to_bytes(values["SwapFree"]);
     if (!total || !available || !cached || !swap_total || !swap_free) {
@@ -71,4 +80,3 @@ std::optional<MemoryMetrics> MemoryCollector::collect() const {
 }
 
 } // namespace pulse
-

@@ -30,9 +30,13 @@ void add_sensor(std::vector<Temperature>& sensors, std::set<std::string>& labels
     if (label.empty()) {
         label = input_path.parent_path().filename().string();
     }
-    if (labels.insert(label).second) {
-        sensors.push_back({.label = std::move(label), .celsius = celsius});
+    if (!labels.insert(label).second) {
+        label.append(" (").append(input_path.parent_path().filename().string()).append(")");
+        if (!labels.insert(label).second) {
+            return;
+        }
     }
+    sensors.push_back({.label = std::move(label), .celsius = celsius});
 }
 
 } // namespace
@@ -52,7 +56,8 @@ std::vector<Temperature> TemperatureCollector::collect() const {
             continue;
         }
         if (entries->path().filename().string().starts_with("thermal_zone")) {
-            add_sensor(sensors, labels, entries->path() / "temp", read_line(entries->path() / "type"));
+            add_sensor(sensors, labels, entries->path() / "temp",
+                       read_line(entries->path() / "type"));
         }
     }
 
@@ -73,7 +78,11 @@ std::vector<Temperature> TemperatureCollector::collect() const {
             }
             auto label = read_line(entries->path() / (prefix + "_label"));
             if (label.empty()) {
-                label = chip.empty() ? prefix : chip + " " + prefix;
+                label = chip;
+                if (!label.empty()) {
+                    label += ' ';
+                }
+                label += prefix;
             }
             add_sensor(sensors, labels, input_path, std::move(label));
         }
@@ -82,4 +91,3 @@ std::vector<Temperature> TemperatureCollector::collect() const {
 }
 
 } // namespace pulse
-

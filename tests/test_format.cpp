@@ -5,7 +5,7 @@
 #include <chrono>
 
 TEST_CASE(byte_formatter_selects_binary_units) {
-    CHECK(pulse::format_bytes(842ULL * 1024ULL) == "842.0 KiB");
+    CHECK(pulse::format_bytes(842ULL * 1024ULL) == "842 KiB");
     CHECK(pulse::format_bytes(6ULL * 1024ULL * 1024ULL * 1024ULL) == "6.0 GiB");
 }
 

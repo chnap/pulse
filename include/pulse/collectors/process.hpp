@@ -48,4 +48,3 @@ class ProcessCollector {
 };
 
 } // namespace pulse
-

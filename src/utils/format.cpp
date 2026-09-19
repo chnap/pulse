@@ -6,7 +6,8 @@
 
 namespace pulse {
 
-std::string format_bytes(std::uint64_t bytes, int precision) {
+// The distinct names make this compact formatting API unambiguous at call sites.
+std::string format_bytes(std::uint64_t bytes, int precision) { // NOLINT
     constexpr double unit = 1024.0;
     constexpr std::array<const char*, 5> suffixes{"B", "KiB", "MiB", "GiB", "TiB"};
     double value = static_cast<double>(bytes);
@@ -17,7 +18,8 @@ std::string format_bytes(std::uint64_t bytes, int precision) {
     }
 
     std::ostringstream output;
-    output << std::fixed << std::setprecision(suffix == 0 ? 0 : precision) << value << ' '
+    const auto display_precision = suffix == 0 || value >= 100.0 ? 0 : precision;
+    output << std::fixed << std::setprecision(display_precision) << value << ' '
            << suffixes[suffix];
     return output.str();
 }
@@ -39,4 +41,3 @@ std::string format_duration(std::chrono::seconds duration) {
 }
 
 } // namespace pulse
-

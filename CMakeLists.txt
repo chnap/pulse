@@ -6,16 +6,40 @@ include(GNUInstallDirs)
 include(CTest)
 
 option(PULSE_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+option(PULSE_ENABLE_CLANG_TIDY "Run clang-tidy while compiling project targets" OFF)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+if(PULSE_ENABLE_CLANG_TIDY)
+    find_program(PULSE_CLANG_TIDY_EXECUTABLE NAMES clang-tidy REQUIRED)
+    set(CMAKE_CXX_CLANG_TIDY "${PULSE_CLANG_TIDY_EXECUTABLE}")
+endif()
+
 configure_file(cmake/version.hpp.in generated/pulse/version.hpp @ONLY)
 
 find_package(Curses REQUIRED)
 find_package(Threads REQUIRED)
+
+find_program(PULSE_CLANG_FORMAT_EXECUTABLE NAMES clang-format)
+if(PULSE_CLANG_FORMAT_EXECUTABLE)
+    file(GLOB_RECURSE PULSE_FORMAT_FILES CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/include/*.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.hpp"
+    )
+    add_custom_target(format
+        COMMAND "${PULSE_CLANG_FORMAT_EXECUTABLE}" -i ${PULSE_FORMAT_FILES}
+        COMMENT "Formatting Pulse sources"
+    )
+    add_custom_target(format-check
+        COMMAND "${PULSE_CLANG_FORMAT_EXECUTABLE}" --dry-run --Werror ${PULSE_FORMAT_FILES}
+        COMMENT "Checking Pulse source formatting"
+    )
+endif()
 
 add_library(pulse_core
     src/collectors/cpu.cpp
@@ -68,5 +92,8 @@ if(BUILD_TESTING)
     )
     target_link_libraries(pulse_tests PRIVATE pulse_core)
     target_include_directories(pulse_tests PRIVATE tests)
+    target_compile_definitions(pulse_tests PRIVATE
+        PULSE_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
+    )
     add_test(NAME pulse_tests COMMAND pulse_tests)
 endif()

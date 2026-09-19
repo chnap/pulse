@@ -4,12 +4,12 @@
 #include "pulse/utils/ring_buffer.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cerrno>
 #include <chrono>
+#include <clocale>
 #include <cmath>
 #include <csignal>
-#include <cctype>
-#include <clocale>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -27,7 +27,7 @@ namespace pulse {
 namespace {
 
 // Name the user-selectable process ordering modes shown in the footer.
-enum class SortKey { Cpu, Memory, Pid, Name };
+enum class SortKey : std::uint8_t { Cpu, Memory, Pid, Name };
 
 // Restore the terminal even when normal C++ stack unwinding leaves the UI.
 class TerminalSession {
@@ -67,7 +67,8 @@ class TerminalSession {
 std::string lowercase(std::string_view text) {
     std::string result;
     result.reserve(text.size());
-    for (const unsigned char character : text) {
+    for (const char raw_character : text) {
+        const auto character = static_cast<unsigned char>(raw_character);
         result.push_back(static_cast<char>(std::tolower(character)));
     }
     return result;
@@ -81,9 +82,11 @@ void put(int row, int column, std::string_view text, int width = -1) {
     if (row < 0 || row >= height || column < 0 || column >= terminal_width) {
         return;
     }
-    const auto available = width < 0 ? terminal_width - column : std::min(width, terminal_width - column);
+    const auto available =
+        width < 0 ? terminal_width - column : std::min(width, terminal_width - column);
     if (available > 0) {
-        mvaddnstr(row, column, text.data(), std::min<int>(available, static_cast<int>(text.size())));
+        mvaddnstr(row, column, text.data(),
+                  std::min<int>(available, static_cast<int>(text.size())));
     }
 }
 
@@ -105,8 +108,8 @@ std::string graph(const std::deque<double>& values, int width, double maximum) {
     std::string result(static_cast<std::size_t>(width - static_cast<int>(count)), ' ');
     for (std::size_t index = start; index < values.size(); ++index) {
         const auto normalized = std::clamp(values[index] / maximum, 0.0, 1.0);
-        const auto level = static_cast<std::size_t>(std::round(normalized *
-                                                               static_cast<double>(levels.size() - 1)));
+        const auto level = static_cast<std::size_t>(
+            std::round(normalized * static_cast<double>(levels.size() - 1)));
         result.push_back(levels[level]);
     }
     return result;
@@ -156,10 +159,9 @@ const NetworkInterface* busiest_interface(const std::vector<NetworkInterface>& i
             continue;
         }
         const auto rate = interface.receive_bytes_per_second + interface.transmit_bytes_per_second;
-        const auto best_rate = busiest == nullptr
-                                   ? -1.0
-                                   : busiest->receive_bytes_per_second +
-                                         busiest->transmit_bytes_per_second;
+        const auto best_rate = busiest == nullptr ? -1.0
+                                                  : busiest->receive_bytes_per_second +
+                                                        busiest->transmit_bytes_per_second;
         if (busiest == nullptr || rate > best_rate) {
             busiest = &interface;
         }
@@ -169,11 +171,10 @@ const NetworkInterface* busiest_interface(const std::vector<NetworkInterface>& i
 
 // Pick the block device with the greatest current combined transfer rate.
 const DiskActivity* busiest_disk(const std::vector<DiskActivity>& disks) {
-    return disks.empty()
-               ? nullptr
-               : &*std::ranges::max_element(disks, {}, [](const DiskActivity& disk) {
-                     return disk.read_bytes_per_second + disk.write_bytes_per_second;
-                 });
+    return disks.empty() ? nullptr
+                         : &*std::ranges::max_element(disks, {}, [](const DiskActivity& disk) {
+                               return disk.read_bytes_per_second + disk.write_bytes_per_second;
+                           });
 }
 
 // Own interactive view state while all Linux collection stays in Monitor.
@@ -220,7 +221,7 @@ class Tui {
 
         if (inspected_pid_) {
             const auto process = find_process(*inspected_pid_);
-            if (process) {
+            if (process && process->start_time_ticks == inspected_start_time_) {
                 process_cpu_history_.push(process->cpu_percent);
                 process_memory_history_.push(process->memory_percent);
             }
@@ -229,12 +230,13 @@ class Tui {
 
     // Filter and sort a private view so keyboard state never mutates shared data.
     void rebuild_processes() {
-        const auto old_pid = selected_process() ? std::optional<Pid>{selected_process()->pid} : std::nullopt;
+        const auto old_pid =
+            selected_process() ? std::optional<Pid>{selected_process()->pid} : std::nullopt;
         displayed_.clear();
         const auto needle = lowercase(query_);
         for (const auto& process : snapshot_.processes) {
-            const auto haystack = lowercase(process.name + " " + process.command + " " +
-                                             std::to_string(process.pid));
+            const auto haystack =
+                lowercase(process.name + " " + process.command + " " + std::to_string(process.pid));
             if (needle.empty() || haystack.find(needle) != std::string::npos) {
                 displayed_.push_back(process);
             }
@@ -255,7 +257,8 @@ class Tui {
             }
             return false;
         });
-        selected_ = std::min(selected_, displayed_.empty() ? std::size_t{0} : displayed_.size() - 1);
+        selected_ =
+            std::min(selected_, displayed_.empty() ? std::size_t{0} : displayed_.size() - 1);
         if (old_pid) {
             const auto found = std::ranges::find(displayed_, *old_pid, &ProcessInfo::pid);
             if (found != displayed_.end()) {
@@ -324,6 +327,7 @@ class Tui {
         case KEY_ENTER:
             if (const auto process = selected_process()) {
                 inspected_pid_ = process->pid;
+                inspected_start_time_ = process->start_time_ticks;
                 process_cpu_history_ = RingBuffer<double>{120};
                 process_memory_history_ = RingBuffer<double>{120};
             }
@@ -373,6 +377,7 @@ class Tui {
     void handle_inspector(int key) {
         if (key == 27 || key == 'q' || key == 'Q' || key == KEY_BACKSPACE) {
             inspected_pid_.reset();
+            inspected_start_time_ = 0;
             status_.clear();
             return;
         }
@@ -389,7 +394,12 @@ class Tui {
     void handle_confirmation(int key) {
         if (key == 'y' || key == 'Y') {
             errno = 0;
-            if (inspected_pid_ && ::kill(*inspected_pid_, *confirm_signal_) == 0) {
+            const auto pid = inspected_pid_.value_or(0);
+            const auto signal = confirm_signal_.value_or(0);
+            const auto process = pid > 0 ? find_process(pid) : nullptr;
+            if (!process || process->start_time_ticks != inspected_start_time_) {
+                status_ = "Signal refused: process exited or PID was reused.";
+            } else if (::kill(pid, signal) == 0) {
                 status_ = "Signal sent successfully.";
             } else {
                 status_ = "Signal failed: " + std::string{std::strerror(errno)};
@@ -444,7 +454,7 @@ class Tui {
         if (snapshot_.system) {
             summary += "   LOAD " + fixed(snapshot_.system->load_one, 2);
             summary += "   UP " + format_duration(std::chrono::seconds{
-                                     static_cast<long long>(snapshot_.system->uptime_seconds)});
+                                      static_cast<long long>(snapshot_.system->uptime_seconds)});
         }
         attron(A_BOLD);
         put(1, 1, summary, width - 2);
@@ -455,12 +465,14 @@ class Tui {
         }
         put(2, 1, "CPU  " + graph(cpu_history_.values(), width - 7, 100.0), width - 2);
         if (snapshot_.memory) {
-            const auto memory_percent = snapshot_.memory->total_bytes > 0
-                                            ? 100.0 * static_cast<double>(snapshot_.memory->used_bytes) /
-                                                  static_cast<double>(snapshot_.memory->total_bytes)
-                                            : 0.0;
-            put(3, 1, "MEM  " + graph(memory_history_.values(), width - 14, 100.0) + " " +
-                           fixed(memory_percent) + "%",
+            const auto memory_percent =
+                snapshot_.memory->total_bytes > 0
+                    ? 100.0 * static_cast<double>(snapshot_.memory->used_bytes) /
+                          static_cast<double>(snapshot_.memory->total_bytes)
+                    : 0.0;
+            put(3, 1,
+                "MEM  " + graph(memory_history_.values(), width - 14, 100.0) + " " +
+                    fixed(memory_percent) + "%",
                 width - 2);
         }
         attrset(A_NORMAL);
@@ -475,8 +487,8 @@ class Tui {
                                            ? snapshot_.cpu[index].name.substr(3)
                                            : snapshot_.cpu[index].name;
                 const auto value = core_name + ":" +
-                                   std::to_string(static_cast<int>(std::round(
-                                       snapshot_.cpu[index].total_percent))) +
+                                   std::to_string(static_cast<int>(
+                                       std::round(snapshot_.cpu[index].total_percent))) +
                                    "% ";
                 if (cores.size() + value.size() >= static_cast<std::size_t>(width - 2)) {
                     cores += "+" + std::to_string(snapshot_.cpu.size() - index) + " more";
@@ -495,7 +507,8 @@ class Tui {
     }
 
     // Draw process columns that progressively add detail on wider terminals.
-    void draw_process_table(int top, int bottom, int width) {
+    // Named arguments at each call make this simple rectangular region readable.
+    void draw_process_table(int top, int bottom, int width) { // NOLINT
         attron(A_BOLD | (terminal_.colors() ? COLOR_PAIR(1) : 0));
         std::string header = " PID     CPU%   MEM%      MEM  PROCESS";
         if (width >= 100) {
@@ -519,8 +532,8 @@ class Tui {
             std::ostringstream line;
             line << ' ' << std::setw(6) << process.pid << ' ' << std::setw(6) << std::fixed
                  << std::setprecision(1) << process.cpu_percent << ' ' << std::setw(6)
-                 << process.memory_percent << ' ' << std::setw(9) << format_bytes(process.resident_bytes, 0)
-                 << "  ";
+                 << process.memory_percent << ' ' << std::setw(9)
+                 << format_bytes(process.resident_bytes, 0) << "  ";
             if (width >= 100) {
                 line << std::left << std::setw(12) << process.user.substr(0, 11) << std::right
                      << process.state << ' ' << std::setw(4) << process.threads << "  ";
@@ -545,38 +558,56 @@ class Tui {
         const auto reads = disk ? disk->read_bytes_per_second : 0.0;
         const auto writes = disk ? disk->write_bytes_per_second : 0.0;
         std::string line = "NET " + (interface ? interface->name : std::string{"-"}) + " down " +
-                           format_bytes(static_cast<std::uint64_t>(down)) +
-                           "/s  up " + format_bytes(static_cast<std::uint64_t>(up)) + "/s";
+                           format_bytes(static_cast<std::uint64_t>(down)) + "/s  up " +
+                           format_bytes(static_cast<std::uint64_t>(up)) + "/s";
         line += "    DISK " + (disk ? disk->name : std::string{"-"}) + " read " +
-                format_bytes(static_cast<std::uint64_t>(reads)) +
-                "/s  write " + format_bytes(static_cast<std::uint64_t>(writes)) + "/s";
+                format_bytes(static_cast<std::uint64_t>(reads)) + "/s  write " +
+                format_bytes(static_cast<std::uint64_t>(writes)) + "/s";
         put(top, 1, line, width - 2);
         if (height - top >= 5) {
             const auto net_max = std::max(1.0, std::max(down, up));
-            put(top + 1, 1, "NET  " + graph(download_history_.values(), (width - 8) / 2, net_max) +
-                                "  " + graph(upload_history_.values(), (width - 8) / 2, net_max),
+            put(top + 1, 1,
+                "NET  " + graph(download_history_.values(), (width - 8) / 2, net_max) + "  " +
+                    graph(upload_history_.values(), (width - 8) / 2, net_max),
                 width - 2);
             std::string storage;
             if (!snapshot_.filesystems.empty()) {
                 const auto root = std::ranges::find(snapshot_.filesystems, std::string{"/"},
                                                     &FilesystemUsage::mount_point);
-                const auto& mount = root != snapshot_.filesystems.end() ? *root
-                                                                        : snapshot_.filesystems.front();
+                const auto& mount =
+                    root != snapshot_.filesystems.end() ? *root : snapshot_.filesystems.front();
                 storage = mount.mount_point + " " + format_bytes(mount.used_bytes) + " / " +
                           format_bytes(mount.total_bytes) + " (" + fixed(mount.used_percent) + "%)";
             }
             if (!snapshot_.temperatures.empty()) {
-                const auto hottest = std::ranges::max_element(snapshot_.temperatures, {},
-                                                              &Temperature::celsius);
+                const auto hottest =
+                    std::ranges::max_element(snapshot_.temperatures, {}, &Temperature::celsius);
                 storage += "    TEMP " + fixed(hottest->celsius) + " C " + hottest->label;
             }
             put(top + 2, 1, storage, width - 2);
+            std::string interfaces = "IFACES ";
+            for (const auto& item : snapshot_.network) {
+                if (item.name == "lo") {
+                    continue;
+                }
+                const auto value =
+                    item.name + " down " +
+                    format_bytes(static_cast<std::uint64_t>(item.receive_bytes_per_second), 0) +
+                    "/s up " +
+                    format_bytes(static_cast<std::uint64_t>(item.transmit_bytes_per_second), 0) +
+                    "/s  ";
+                if (interfaces.size() + value.size() >= static_cast<std::size_t>(width - 2)) {
+                    break;
+                }
+                interfaces += value;
+            }
+            put(top + 3, 1, interfaces, width - 2);
         }
         const std::string search = query_.empty() ? "" : "  FILTER: " + query_;
-        const std::string controls = searching_
-                                         ? "/ Search: " + query_ + "   Enter/Esc finish"
-                                         : "Up/Down Navigate  / Search  Enter Inspect  c/m/p/n Sort [" +
-                                               std::string{sort_name(sort_)} + "]  q Quit" + search;
+        const std::string controls =
+            searching_ ? "/ Search: " + query_ + "   Enter/Esc finish"
+                       : "Up/Down Navigate  / Search  Enter Inspect  c/m/p/n Sort [" +
+                             std::string{sort_name(sort_)} + "]  q Quit" + search;
         attron(A_REVERSE);
         std::string footer = " " + controls;
         footer.resize(static_cast<std::size_t>(width), ' ');
@@ -590,9 +621,10 @@ class Tui {
 
     // Draw all accessible detail for one process plus bounded personal histories.
     void draw_inspector(int height, int width) {
-        const auto process = find_process(*inspected_pid_);
-        if (!process) {
-            put(2, 2, "Process " + std::to_string(*inspected_pid_) + " has exited.");
+        const auto inspected_pid = inspected_pid_.value_or(0);
+        const auto process = find_process(inspected_pid);
+        if (!process || process->start_time_ticks != inspected_start_time_) {
+            put(2, 2, "Process " + std::to_string(inspected_pid) + " has exited.");
             put(height - 1, 0, " Esc Back", width);
             return;
         }
@@ -605,11 +637,13 @@ class Tui {
         put(2, 2, "PID          " + std::to_string(process->pid));
         put(3, 2, "PPID         " + std::to_string(process->parent_pid));
         put(4, 2, "User         " + process->user);
-        put(5, 2, "State        " + std::string{state_name(process->state)} + " (" +
-                       process->state + ")");
+        put(5, 2,
+            "State        " + std::string{state_name(process->state)} + " (" + process->state +
+                ")");
         put(6, 2, "Threads      " + std::to_string(process->threads));
-        put(7, 2, "Runtime      " + format_duration(std::chrono::seconds{
-                                      static_cast<long long>(process->runtime_seconds)}));
+        put(7, 2,
+            "Runtime      " + format_duration(std::chrono::seconds{
+                                  static_cast<long long>(process->runtime_seconds)}));
         put(2, width / 2, "CPU          " + fixed(process->cpu_percent) + "%");
         put(3, width / 2,
             "Memory       " + format_bytes(process->resident_bytes) + " (" +
@@ -620,21 +654,22 @@ class Tui {
         attroff(A_BOLD);
         put(10, 2, process->command, width - 4);
         const int graph_width = width - 17;
-        put(12, 2, "CPU history  " + graph(process_cpu_history_.values(), graph_width, 100.0), width - 4);
+        put(12, 2, "CPU history  " + graph(process_cpu_history_.values(), graph_width, 100.0),
+            width - 4);
         put(14, 2,
             "MEM history  " + graph(process_memory_history_.values(), graph_width,
-                                      std::max(1.0, process->memory_percent * 1.25)),
+                                    std::max(1.0, process->memory_percent * 1.25)),
             width - 4);
         if (!status_.empty()) {
             put(16, 2, status_, width - 4);
         }
         if (confirm_signal_) {
-            const auto name = *confirm_signal_ == SIGTERM
-                                  ? "SIGTERM"
-                                  : *confirm_signal_ == SIGINT ? "SIGINT" : "SIGKILL";
+            const auto name = *confirm_signal_ == SIGTERM  ? "SIGTERM"
+                              : *confirm_signal_ == SIGINT ? "SIGINT"
+                                                           : "SIGKILL";
             attron(A_BOLD | (terminal_.colors() ? COLOR_PAIR(4) : 0));
-            put(height - 3, 2, "Send " + std::string{name} + " to PID " +
-                                   std::to_string(process->pid) + "? y/N",
+            put(height - 3, 2,
+                "Send " + std::string{name} + " to PID " + std::to_string(process->pid) + "? y/N",
                 width - 4);
             attrset(A_NORMAL);
         }
@@ -661,6 +696,7 @@ class Tui {
     std::string query_;
     std::string status_;
     std::optional<Pid> inspected_pid_;
+    std::uint64_t inspected_start_time_{};
     std::optional<int> confirm_signal_;
     bool searching_{};
     bool quit_{};

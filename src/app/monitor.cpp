@@ -1,6 +1,7 @@
 #include "pulse/app/monitor.hpp"
 
 #include <algorithm>
+#include <utility>
 
 namespace pulse {
 
@@ -11,7 +12,7 @@ Monitor::~Monitor() { stop(); }
 
 void Monitor::start() {
     if (!worker_.joinable()) {
-        worker_ = std::jthread([this](std::stop_token token) { run(token); });
+        worker_ = std::jthread([this](const std::stop_token& token) { run(token); });
     }
 }
 
@@ -30,7 +31,7 @@ MonitorSnapshot Monitor::snapshot() const {
 
 const SystemInfo& Monitor::system_info() const noexcept { return system_info_; }
 
-void Monitor::run(std::stop_token stop_token) {
+void Monitor::run(const std::stop_token& stop_token) {
     std::optional<CpuSample> previous_cpu;
     std::uint64_t cycle = 0;
 
@@ -80,4 +81,3 @@ void Monitor::run(std::stop_token stop_token) {
 }
 
 } // namespace pulse
-
